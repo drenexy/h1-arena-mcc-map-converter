@@ -31,6 +31,50 @@ def save_config(cfg):
         json.dump(cfg, fh, indent=2)
 
 
+def ws_meta(item_root):
+    """Read a Workshop package's ModInfo.json: title, description, thumbnail."""
+    key = os.path.normcase(item_root)
+    if key in _WS_CACHE:
+        return _WS_CACHE[key]
+    meta = {"title": os.path.basename(item_root), "desc": "", "thumb": None,
+            "id": os.path.basename(item_root)}
+    try:
+        d = json.load(open(os.path.join(item_root, "ModInfo.json"), encoding="utf-8-sig"))
+        meta["title"] = (d.get("Title") or {}).get("Neutral") or meta["title"]
+        meta["desc"] = (d.get("Description") or {}).get("Neutral") or ""
+    except (OSError, ValueError):
+        pass
+    for sub in ("images", ""):
+        pat = os.path.join(item_root, sub, "*") if sub else item_root + "/*"
+        for img in sorted(glob.glob(os.path.join(pat, "*.png"))):
+            base = os.path.basename(img).lower()
+            if "small" in base or "header" in base or "logo" in base:
+                meta["thumb"] = img
+                break
+        if meta["thumb"]:
+            break
+    _WS_CACHE[key] = meta
+    return meta
+
+
+_WS_CACHE = {}
+
+
+def workshop_map_dirs():
+    """[(maps_dir, item_root)] for every subscribed MCC workshop package."""
+    out = []
+    for d in steamscan.workshop_dirs():
+        parts = os.path.normpath(d).split(os.sep)
+        root = None
+        for i, p in enumerate(parts):
+            if p.lower() == "content" and len(parts) > i + 2:
+                root = os.sep.join(parts[: i + 3])
+                break
+        if root and os.path.isdir(root):
+            out.append((d, root))
+    return out
+
+
 def scan_sources(cfg):
     """Candidate .map files: MCC stock maps, Workshop packages, user folders."""
     found, seen = [], set()
@@ -46,11 +90,10 @@ def scan_sources(cfg):
 
     if cfg.get("use_mcc", True):
         mcc = steamscan.mcc_map_dir()
-        n = len(glob.glob(os.path.join(mcc or "", "*.map"))) if mcc else 0
-        add(mcc, f"MCC stock maps ({n})")
+        add(mcc, "MCC's own maps")
     if cfg.get("use_workshop", True):
-        for d in steamscan.workshop_dirs():
-            add(d, "MCC Workshop: " + os.path.basename(os.path.dirname(d)))
+        for d, root in workshop_map_dirs():
+            add(d, "Workshop: " + ws_meta(root)["title"])
     for d in cfg.get("source_dirs", []):
         add(d, "My folder: " + d)
     return found
@@ -133,21 +176,64 @@ def gui():
     # ---- step 3: the list -------------------------------------------------
     s3 = ttk.LabelFrame(frm, text=" 3  Pick maps  ", padding=8)
     s3.pack(fill="both", expand=True, pady=(0, 8))
-    tree = ttk.Treeview(s3, columns=("fmt", "status", "size", "src"),
+    listpane = ttk.Frame(s3)
+    listpane.pack(fill="both", expand=True)
+    tree = ttk.Treeview(listpane, columns=("fmt", "status", "size", "src"),
                         show="tree headings", selectmode="extended")
     tree.heading("#0", text="Map")
-    tree.column("#0", width=230)
-    for c, head, w in (("fmt", "What it is", 230), ("status", "In your game?", 170),
-                       ("size", "Size", 70), ("src", "Where it came from", 220)):
+    tree.column("#0", width=210)
+    for c, head, w in (("fmt", "What it is", 200), ("status", "In your game?", 120),
+                       ("size", "Size", 60), ("src", "Where it came from", 200)):
         tree.heading(c, text=head)
         tree.column(c, width=w, anchor="w")
-    vsb = ttk.Scrollbar(s3, orient="vertical", command=tree.yview)
+    vsb = ttk.Scrollbar(listpane, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=vsb.set)
     tree.pack(side="left", fill="both", expand=True)
-    vsb.pack(side="right", fill="y")
+    vsb.pack(side="left", fill="y")
     tree.bind("<Double-1>", lambda e: do_install_ask())
     tree.tag_configure("installed", foreground="#0a7d32")
     tree.tag_configure("bad", foreground="#b00000")
+
+    # preview of the selected Workshop map (picture + what the author said)
+    pv = ttk.Frame(listpane, width=330)
+    pv.pack(side="left", fill="y", padx=(10, 0))
+    pv.pack_propagate(False)
+    pv_img = tk.Label(pv, background="#f2f2f2", text="(no preview)",
+                      foreground="#999")
+    pv_img.pack(fill="x")
+    pv_title = ttk.Label(pv, text="", wraplength=310, font="TkDefaultFont 10 bold")
+    pv_title.pack(anchor="w", pady=(6, 0))
+    pv_desc = ttk.Label(pv, text="", wraplength=310, justify="left")
+    pv_desc.pack(anchor="w")
+    _photo_cache = {}
+
+    def show_preview(event=None):
+        sel = tree.selection()
+        pv_img.configure(image="", text="(no preview)")
+        pv_title.configure(text="")
+        pv_desc.configure(text="")
+        if not sel:
+            return
+        for t in tree.item(sel[0], "tags"):
+            if t.startswith("wsmeta::"):
+                meta = ws_meta(t[8:])
+                pv_title.configure(text=meta["title"])
+                pv_desc.configure(text=meta["desc"][:500])
+                if meta["thumb"]:
+                    try:
+                        tk_img = _photo_cache.get(meta["thumb"])
+                        if tk_img is None:
+                            tk_img = tk.PhotoImage(file=meta["thumb"])
+                            step = max(1, tk_img.width() // 300)
+                            if step > 1:
+                                tk_img = tk_img.subsample(step, step)
+                            _photo_cache[meta["thumb"]] = tk_img
+                        pv_img.configure(image=tk_img, text="")
+                    except Exception:
+                        pass
+                break
+
+    tree.bind("<<TreeviewSelect>>", show_preview)
 
     # ---- actions ----------------------------------------------------------
     acts = ttk.Frame(frm)
@@ -213,13 +299,19 @@ def gui():
             name = (h["name"] if h and h.get("name")
                     else os.path.splitext(os.path.basename(f))[0])
             fmt = fmt_version(h)
-            tags = ("src::" + f,)
-            if h and h["magic"] == b"daeh" and h["version"] != 7 and h["version"] != 13:
-                tags += ("bad",)
+            tags = ["src::" + f]
+            if label.startswith("Workshop: "):
+                parts = os.path.normpath(os.path.abspath(f)).split(os.sep)
+                for i, p in enumerate(parts):
+                    if p.lower() == "content" and len(parts) > i + 2:
+                        tags.append("wsmeta::" + os.sep.join(parts[: i + 3]))
+                        break
+            if h and h["magic"] == b"daeh" and h["version"] not in (7, 13):
+                tags.append("bad")
             status = "yes ✔" if name.lower() in in_game else "no"
             tree.insert("", "end", text=name,
                         values=(fmt, status, f"{os.path.getsize(f)/1e6:.0f} MB", label),
-                        tags=tags)
+                        tags=tuple(tags))
         if game:
             man = pipeline.load_manifest(game)
             for fname, ent in sorted(man.get("maps", {}).items()):
