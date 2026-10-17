@@ -196,11 +196,23 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
     before = set(glob.glob(os.path.join(job_tags, "**", "*.scenario"), recursive=True))
 
     log_line("extracting tags...", log)
-    cmd = [os.path.join(inv, "invader-extract.exe"), "-t", job_tags, "-O", "-s", "*"]
-    if mcc_maps_dir:
-        cmd += ["-m", mcc_maps_dir]
-    cmd.append(map_path)
-    rc, out = run(cmd, cwd=hceek_dir, log=log, timeout=1200)
+    # A Workshop pack may ship its own halo1\maps resource files next to the
+    # map (custom bitmaps/sounds). Extract from MCC's stock packs first, then
+    # from the pack's own (its versions win, like MCC's own load order).
+    res_dirs = [mcc_maps_dir] if mcc_maps_dir else []
+    for up in (os.path.dirname(map_path),
+               os.path.join(os.path.dirname(map_path), "..")):
+        own = os.path.normpath(os.path.join(up, "halo1", "maps"))
+        if os.path.isdir(own) and glob.glob(os.path.join(own, "*.map")) \
+                and own not in res_dirs:
+            res_dirs.append(own)
+    last_out = ""
+    for rd in res_dirs:
+        cmd = [os.path.join(inv, "invader-extract.exe"), "-t", job_tags,
+               "-O", "-s", "*"]
+        cmd += ["-m", rd, map_path]
+        rc, last_out = run(cmd, cwd=hceek_dir, log=log, timeout=1200)
+    out = last_out
     if "Extracted 0 out of" in out:
         raise RuntimeError("extract found no tags: " + out.strip()[-300:])
 
