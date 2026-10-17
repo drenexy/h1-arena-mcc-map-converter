@@ -161,10 +161,13 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
     tried |= fresh
     for tag in sorted(fresh):
         for gm in sorted(glob.glob(os.path.join(game_maps_dir, "*.map"))):
+            stem = os.path.splitext(os.path.basename(gm))[0].lower()
+            if stem in gate.DENY or os.path.getsize(gm) < 0x800:
+                continue
             rc, out = run([os.path.join(inv, "invader-extract.exe"), "-t", job_tags,
                            "-O", "-s", tag, gm],
                           cwd=hceek_dir, log=log, timeout=600)
-            if "Extracted 0 out of 0" not in out:
+            if "Extracted 0 out of 0" not in out and "Extracted " in out:
                 log_line(f"  overlaid '{tag}' from {os.path.basename(gm)}", log)
                 break
     return True
@@ -221,8 +224,14 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
         failed = _failed_tags(out)
         if not failed or not _overlay(failed, job_tags, os.path.join(game_dir, "maps"),
                                       inv, hceek_dir, tried, log):
-            raise RuntimeError("build failed:\n" + "\n".join(
-                l for l in out.splitlines() if "Failed" in l or "FATAL" in l)[:900])
+            detail = "\n".join(l for l in out.splitlines()
+                               if "Failed" in l or "FATAL" in l)[:900]
+            if "Failed to find" in out and any(x in out for x in (".bitmap", ".sound")):
+                detail += ("\n\nThis map keeps some of its art or sound in MCC's "
+                           "protected resource packs, which the converter cannot "
+                           "read yet. Only maps that carry their own files (or use "
+                           "standard game files) can convert today.")
+            raise RuntimeError("build failed:\n" + detail)
     raise RuntimeError("build failed after 8 attempts")
 
 
