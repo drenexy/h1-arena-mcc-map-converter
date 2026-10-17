@@ -200,7 +200,7 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
     if mcc_maps_dir:
         cmd += ["-m", mcc_maps_dir]
     cmd.append(map_path)
-    rc, out = run(cmd, cwd=hceek_dir, log=log, timeout=1800)
+    rc, out = run(cmd, cwd=hceek_dir, log=log, timeout=1200)
     if "Extracted 0 out of" in out:
         raise RuntimeError("extract found no tags: " + out.strip()[-300:])
 
@@ -215,7 +215,7 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
         log_line(f"building v7 map (attempt {attempt})...", log)
         rc, out = run([os.path.join(inv, "invader-build.exe"), "-g", "gbx-retail",
                        "-t", job_tags, "-N", name, "-o", out_map, scen],
-                      cwd=hceek_dir, log=log, timeout=3600)
+                      cwd=hceek_dir, log=log, timeout=1500)
         if rc == 0 and os.path.isfile(out_map):
             ok, why = gate.gate(out_map)
             if not ok:

@@ -10,6 +10,7 @@ import os
 import queue
 import sys
 import threading
+import traceback
 
 import gate
 import pipeline
@@ -371,41 +372,47 @@ def gui():
         threading.Thread(target=_install_worker, args=(paths,), daemon=True).start()
 
     def _install_worker(paths):
-        game = game_var.get()
-        hceek = steamscan.hceek_dir()
-        z = pipeline.find_invader_zip(game, cfg)
-        needs_conv = any((gate.read_header(p) or {}).get("version") == 13 for p in paths)
-        if needs_conv and not hceek:
-            log("You need the free Steam tool 'Halo: CE Mod Tools - MCC' installed "
-                "(and its 'HCEEK (Extract).bat' run once) before MCC maps can convert.")
-            q.put(("done",))
-            return
-        if needs_conv and not z:
-            log("Could not find the game's tools\\invader-*.zip — put it beside the "
-                "game or set invader_zip in " + CONFIG_PATH)
-            q.put(("done",))
-            return
-        for p in paths:
-            try:
-                h = gate.read_header(p)
-                if h["version"] == 7:
-                    ok, why = gate.gate(p)
-                    if not ok:
-                        log(f"{os.path.basename(p)}: {why}")
+        try:
+            game = game_var.get()
+            hceek = steamscan.hceek_dir()
+            z = pipeline.find_invader_zip(game, cfg)
+            needs_conv = any((gate.read_header(p) or {}).get("version") == 13 for p in paths)
+            if needs_conv and not hceek:
+                log("You need the free Steam tool 'Halo: CE Mod Tools - MCC' installed "
+                    "(and its 'HCEEK (Extract).bat' run once) before MCC maps can convert.")
+                return
+            if needs_conv and not z:
+                log("Could not find the game's tools\\invader-*.zip — put it beside the "
+                    "game or set invader_zip in " + CONFIG_PATH)
+                return
+            log(f"queue: {len(paths)} map(s). Each MCC map takes ~1–4 minutes, "
+                "sometimes more if it needs repairs.")
+            for i, p in enumerate(paths, 1):
+                name = os.path.basename(p)
+                try:
+                    h = gate.read_header(p)
+                    if h["version"] == 7:
+                        ok, why = gate.gate(p)
+                        if not ok:
+                            log(f"[{i}/{len(paths)}] {name}: {why}")
+                            continue
+                        mname = h["name"] or os.path.splitext(name)[0]
+                        dest = pipeline.install_map(game, p, mname)
+                        log(f"[{i}/{len(paths)}] copied in -> {dest}")
                         continue
-                    name = h["name"] or os.path.splitext(os.path.basename(p))[0]
-                    dest = pipeline.install_map(game, p, name)
-                    log(f"copied in -> {dest}")
-                    continue
-                log(f"converting {os.path.basename(p)} …")
-                res = pipeline.convert_map(p, game, hceek,
-                                           steamscan.mcc_map_dir(), z, log=log)
-                dest = pipeline.install_map(game, res["map"], res["name"])
-                log(f"done! '{res['name']}' is now in your game — "
-                    "you'll see it in the MAPS menu next time you start the game")
-            except Exception as e:
-                log("FAILED: " + str(e)[:700])
-        q.put(("done",))
+                    log(f"[{i}/{len(paths)}] converting {name} …")
+                    res = pipeline.convert_map(p, game, hceek,
+                                               steamscan.mcc_map_dir(), z,
+                                               log=lambda m: log(f"[{i}/{len(paths)}] " + m))
+                    dest = pipeline.install_map(game, res["map"], res["name"])
+                    log(f"[{i}/{len(paths)}] DONE — '{res['name']}' is now in your game; "
+                        "you'll see it in the MAPS menu next time you start the game")
+                except Exception as e:
+                    log(f"[{i}/{len(paths)}] FAILED {name}: " + str(e)[:700])
+        except Exception:
+            log("unexpected error: " + traceback.format_exc()[-500:])
+        finally:
+            q.put(("done",))
 
     def do_remove():
         game = game_var.get()
