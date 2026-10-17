@@ -104,7 +104,7 @@ def gui():
     ttk.Button(frm, text="Browse", width=8, command=lambda: pick("game")).grid(row=0, column=2)
     ttk.Label(frm, text="Extra map folder:").grid(row=1, column=0, sticky="w")
     ttk.Entry(frm, textvariable=src_var).grid(row=1, column=1, sticky="we", padx=4)
-    ttk.Button(frm, text="Add", width=8, command=add_source).grid(row=1, column=2)
+    ttk.Button(frm, text="Add", width=8, command=lambda: add_source()).grid(row=1, column=2)
 
     tree = ttk.Treeview(frm, columns=("status", "size", "source"),
                         show="tree headings", selectmode="extended")
@@ -122,9 +122,10 @@ def gui():
     btns.grid(row=3, column=0, columnspan=3, sticky="we")
     b_refresh = ttk.Button(btns, text="Refresh", command=lambda: refresh())
     b_refresh.pack(side="left")
-    b_conv = ttk.Button(btns, text="Convert + install selected", command=convert_sel)
+    b_conv = ttk.Button(btns, text="Convert + install selected",
+                        command=lambda: convert_sel())
     b_conv.pack(side="left", padx=6)
-    b_rm = ttk.Button(btns, text="Remove companion maps", command=remove_sel)
+    b_rm = ttk.Button(btns, text="Remove companion maps", command=lambda: remove_sel())
     b_rm.pack(side="left")
 
     bar = ttk.Progressbar(frm, mode="indeterminate")
