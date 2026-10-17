@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import zipfile
 
 import gate
@@ -34,10 +35,25 @@ def log_line(msg, log):
 def run(cmd, cwd=None, timeout=1800, log=None):
     log_line("$ " + " ".join(os.path.basename(str(c)) if i == 0 else str(c)
                              for i, c in enumerate(cmd)), log)
-    p = subprocess.run(cmd, cwd=cwd, timeout=timeout,
-                       capture_output=True, text=True, errors="replace",
-                       creationflags=NOCREATE)
-    return p.returncode, (p.stdout or "") + (p.stderr or "")
+    t0 = time.time()
+    p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, errors="replace",
+                         creationflags=NOCREATE)
+    out = ""
+    try:
+        while True:
+            try:
+                out = p.communicate(timeout=20)[0] or ""
+                break
+            except subprocess.TimeoutExpired:
+                log_line(f"still working… {int(time.time() - t0)} s", log)
+                if time.time() - t0 > timeout:
+                    p.kill()
+                    raise RuntimeError("timed out after " + str(timeout) + " s")
+    except KeyboardInterrupt:
+        p.kill()
+        raise
+    return p.returncode, out
 
 
 # ---------------------------------------------------------------- setup ----

@@ -102,6 +102,8 @@ def scan_sources(cfg):
 def fmt_version(h):
     if h is None or h["magic"] != b"daeh":
         return "not a Halo map"
+    if h.get("raw_ver") == b"\x05\x00\x00\x00":
+        return "Xbox disc map — can't use these"
     return {13: "MCC map — will be converted",
             7: "PC map — copies straight in",
             609: "CE map — this game can't use CE files"}.get(
@@ -346,8 +348,19 @@ def gui():
         if bad:
             messagebox.showinfo(
                 "H1 Map Companion",
-                "Some selected maps are CE (Custom Edition) or unknown files — this "
-                "game can only use maps converted from MCC or PC-format maps.")
+                "Some selected maps can't be used by this game — original Xbox and CE "
+                "(Custom Edition) files don't work, only MCC maps and PC-format maps.")
+            return
+        game = game_var.get()
+        mine = {os.path.splitext(f)[0].lower() for f in
+                glob.glob(os.path.join(game, "maps", "*.map"))} if game else set()
+        dupes = [os.path.splitext(os.path.basename(p))[0] for p in paths
+                 if ((gate.read_header(p) or {}).get("name") or
+                     os.path.splitext(os.path.basename(p))[0]).lower() in mine]
+        if dupes and not messagebox.askyesno(
+                "H1 Map Companion",
+                "Already in your game: " + ", ".join(dupes[:5]) +
+                "\n\nConvert anyway (for example a modded version of it)?"):
             return
         if not messagebox.askyesno(
                 "H1 Map Companion",

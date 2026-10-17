@@ -28,6 +28,7 @@ def read_header(path):
     return {
         "magic": head[:4],
         "version": struct.unpack("<I", head[4:8])[0],
+        "raw_ver": head[4:8],
         "size": struct.unpack("<I", head[8:12])[0],
         "foot": head[0x7FC:0x800],
         "name": name,
@@ -46,6 +47,9 @@ def gate(path):
         return False, "that name is a resource pack, not a playable map"
     if h["magic"] != b"daeh":
         return False, "not a little-endian cache (no 'head' signature)"
+    if h.get("raw_ver") == b"\x05\x00\x00\x00":
+        return False, ("this is an original Xbox map (big files from a disc dump) — "
+                       "this game can only use PC-format maps")
     if h["foot"] != b"toof\0\0\0\0"[:4]:
         return False, "no 'foot' signature — truncated or still copying"
     if h["version"] != 7:
