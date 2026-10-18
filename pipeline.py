@@ -148,7 +148,10 @@ def _failed_tags(output):
         for pat in _ERROR_PATTERNS:
             if pat in line:
                 tail = line.split(pat, 1)[1].strip()
-                if tail and " " not in tail[:4]:
+                # a real tag path has a separator and an extension; this drops junk
+                # like "Bitmap #2 in" that would otherwise burn every repair attempt
+                if (tail and " " not in tail[:4] and "." in tail and
+                        ("\\" in tail or "/" in tail)):
                     out.add(tail)
     return out
 
@@ -159,7 +162,9 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
     if not fresh:
         return False
     tried |= fresh
+    import re
     for tag in sorted(fresh):
+        hit = None
         for gm in sorted(glob.glob(os.path.join(game_maps_dir, "*.map"))):
             stem = os.path.splitext(os.path.basename(gm))[0].lower()
             if stem in gate.DENY or os.path.getsize(gm) < 0x800:
@@ -167,9 +172,14 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
             rc, out = run([os.path.join(inv, "invader-extract.exe"), "-t", job_tags,
                            "-O", "-s", tag, gm],
                           cwd=hceek_dir, log=log, timeout=600)
-            if "Extracted 0 out of 0" not in out and "Extracted " in out:
-                log_line(f"  overlaid '{tag}' from {os.path.basename(gm)}", log)
+            m = re.search(r"Extracted (\d+) out of", out)
+            if m and int(m.group(1)) > 0:
+                hit = os.path.basename(gm)
+                log_line(f"  repaired '{tag}' from {hit}", log)
                 break
+        if not hit:
+            log_line(f"  repair: no shipped map carries '{tag}' — retrying build "
+                     "without it", log)
     return True
 
 
