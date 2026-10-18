@@ -20,7 +20,7 @@ in-game on the next launch.
 
 ## Requirements
 
-- Windows, Python 3.9+ (or the standalone `H1MapCompanion.exe`)
+- Windows, Python 3.9+ (or the standalone `H1ArenaMapConverter.exe`)
 - Steam with **Halo: The Master Chief Collection** (owns the maps you convert)
 - Steam with **Halo: CE Mod Tools - MCC** installed **and extracted**
   (run `HCEEK (Extract).bat` once in the Mod Tools folder)
@@ -60,7 +60,7 @@ taken from the game's own shipped maps, then rebuilding. Everything runs under
 powershell -ExecutionPolicy Bypass -File build_exe.ps1
 ```
 
-Needs `pip install pyinstaller`. Result: `dist\H1MapCompanion.exe`.
+Needs `pip install pyinstaller`. Result: `dist\H1ArenaMapConverter.exe`.
 
 ## Notes
 
