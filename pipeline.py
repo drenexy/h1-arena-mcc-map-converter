@@ -10,6 +10,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -169,9 +170,9 @@ def _stock_donor(game_maps_dir, inv, hceek_dir, log):
             if stem in gate.DENY or os.path.getsize(gm) < 0x800:
                 continue
             rc, out = run([os.path.join(inv, "invader-extract.exe"), "-t", probe,
-                           "-O", "-s", "old tags/internal hud", gm],
+                           "-O", "-s", "old tags/*", gm],
                           cwd=hceek_dir, timeout=60)
-            if "Extracted 1 out of 1" in out:
+            if re.search(r"Extracted [1-9]\d* out of", out):
                 log_line(f"stock-tag donor: {os.path.basename(gm)}", log)
                 return gm
     finally:
@@ -214,7 +215,6 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
     if not fresh:
         return False
     tried |= fresh
-    import re
     for tag in sorted(fresh):
         hit = None
         for gm in sorted(glob.glob(os.path.join(game_maps_dir, "*.map"))):
