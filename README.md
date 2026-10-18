@@ -1,4 +1,4 @@
-# H1 Map Companion
+# H1 Arena MCC Map Converter
 
 Small GUI for H1 Performance Build 2: pick Halo MCC maps you own, hit
 **Convert + install**, the map lands in the game's `maps\` folder and shows up

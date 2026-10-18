@@ -1,4 +1,4 @@
-"""H1 Map Companion — turn your MCC maps into Performance Build maps.
+"""H1 Arena MCC Map Converter — turn your MCC maps into Performance Build maps.
 
 GUI:  python companion.py
 CLI:  python companion.py --convert <map.map> [--game <dir>]
@@ -143,7 +143,7 @@ def gui():
     q = queue.Queue()
 
     root = tk.Tk()
-    root.title("H1 Map Companion")
+    root.title("H1 Arena MCC Map Converter")
     root.geometry("900x620")
 
     frm = ttk.Frame(root, padding=10)
@@ -337,18 +337,18 @@ def gui():
     def do_install_ask():
         paths = selected_sources()
         if not paths:
-            messagebox.showinfo("H1 Map Companion",
+            messagebox.showinfo("H1 Arena MCC Map Converter",
                                 "Click one or more MCC maps in the list first.")
             return
         if not game_var.get():
-            messagebox.showerror("H1 Map Companion",
+            messagebox.showerror("H1 Arena MCC Map Converter",
                                  "Pick your game folder in step 1 first.")
             return
         bad = [p for p in paths
                if (gate.read_header(p) or {}).get("version") not in (7, 13)]
         if bad:
             messagebox.showinfo(
-                "H1 Map Companion",
+                "H1 Arena MCC Map Converter",
                 "Some selected maps can't be used by this game — original Xbox and CE "
                 "(Custom Edition) files don't work, only MCC maps and PC-format maps.")
             return
@@ -359,12 +359,12 @@ def gui():
                  if ((gate.read_header(p) or {}).get("name") or
                      os.path.splitext(os.path.basename(p))[0]).lower() in mine]
         if dupes and not messagebox.askyesno(
-                "H1 Map Companion",
+                "H1 Arena MCC Map Converter",
                 "Already in your game: " + ", ".join(dupes[:5]) +
                 "\n\nConvert anyway (for example a modded version of it)?"):
             return
         if not messagebox.askyesno(
-                "H1 Map Companion",
+                "H1 Arena MCC Map Converter",
                 f"Install {len(paths)} map(s) into your game?\n\n"
                 "MCC maps get converted first — give it a couple of minutes each."):
             return
@@ -435,7 +435,7 @@ def gui():
                         log("removed " + fname + " from your game")
                     else:
                         messagebox.showinfo(
-                            "H1 Map Companion",
+                            "H1 Arena MCC Map Converter",
                             "Only maps installed by this app can be removed here.")
         if removed:
             pipeline.save_manifest(game, man)
@@ -472,7 +472,7 @@ def gui():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="H1 Map Companion")
+    ap = argparse.ArgumentParser(description="H1 Arena MCC Map Converter")
     ap.add_argument("--convert", help="convert one map headlessly")
     ap.add_argument("--game", help="game folder (the one containing maps\\)")
     args = ap.parse_args()
