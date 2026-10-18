@@ -68,3 +68,13 @@ Needs `pip install pyinstaller`. Result: `dist\H1MapCompanion.exe`.
   PC — install maps only from people you trust.
 - Converted maps that still stream art from external packs play with some
   textures missing; the list marks those.
+
+## Stock tag cache (HUD correctness without game maps)
+The converter caches the full tag set of one shipped map (classic PC HUD,
+stock weapons/vehicles/etc — 84 MB) into `%LOCALAPPDATA%\h1mapcompanion\stocktags`
+the first time a conversion needs it. From then on, conversions take their stock
+tags from that cache, NOT from the game's `maps\` folder — so converting works
+even if the game folder's maps are removed or moved. The cache can only be built
+once from a shipped author map (any of the game's originals counts), which is a
+legal requirement anyway: those tags belong to the game, not to this app.
+Rebuild the cache by deleting the `stocktags` folder.

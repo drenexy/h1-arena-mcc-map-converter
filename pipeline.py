@@ -23,7 +23,13 @@ APPDIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
                       "h1mapcompanion")
 INVADER_DIR = os.path.join(APPDIR, "invader")
 TAGBASE = os.path.join(APPDIR, "tagbase")
+STOCK = os.path.join(APPDIR, "stocktags")
 JOBS = os.path.join(APPDIR, "jobs")
+
+# The game's own maps all share one set of stock tags (classic PC HUD + stock
+# weapons/vehicles/etc). The whole tag set of one shipped map is extracted once
+# into the companion's cache, so conversions never depend on what happens to be
+# in the game's maps\ folder at the time.
 
 FLAG_FILE = "CREATE_NO_WINDOW" if os.name == "nt" else 0
 NOCREATE = getattr(subprocess, FLAG_FILE, 0) if os.name == "nt" else 0
@@ -180,6 +186,50 @@ def _stock_donor(game_maps_dir, inv, hceek_dir, log):
     return None
 
 
+def stock_ready():
+    return os.path.isfile(os.path.join(STOCK, "ready.json"))
+
+
+def build_stock_cache(game_maps_dir, inv, hceek_dir, log=None):
+    """One-time: extract the shared stock tags out of a shipped map into the
+    companion cache. Returns True when the cache is usable afterwards."""
+    if stock_ready():
+        return True
+    donor = _stock_donor(game_maps_dir, inv, hceek_dir, log)
+    if not donor:
+        return False
+    log_line("caching the game's stock tags (one shipped map, all tags)...", log)
+    tmp = STOCK + ".tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
+    got = 0
+    rc, out = run([os.path.join(inv, "invader-extract.exe"), "-t", tmp, "-O",
+                   "-m", game_maps_dir, "-s", "*", donor],
+                  cwd=hceek_dir, log=log, timeout=1800)
+    n = re.search(r"Extracted (\d+) out of", out)
+    got = int(n.group(1)) if n else 0
+    if got == 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return False
+    shutil.rmtree(STOCK, ignore_errors=True)
+    os.replace(tmp, STOCK)
+    with open(os.path.join(STOCK, "ready.json"), "w") as f:
+        json.dump({"donor": os.path.basename(donor), "tags": got}, f)
+    log_line(f"stock tag cache ready: {got} tags (from {os.path.basename(donor)})", log)
+    return True
+
+
+def _copy_stock(job_tags, log=None, only=None):
+    """Overlay cached stock tags into a job's tag tree (stock files win)."""
+    rc, out = run(["robocopy", STOCK, job_tags, "/E", "/NFL", "/NDL", "/NJH",
+                   "/NJS", "/NP", "/XF", "ready.json"], timeout=600)
+    if rc >= 8:
+        log_line(f"WARNING: stock overlay failed (robocopy {rc})", log)
+        return 0
+    log_line("stock tags overlaid from companion cache", log)
+    return 1
+
+
 def _stockify_hud(job_tags, game_maps_dir, inv, hceek_dir, log):
     r"""Workshop packs built on CEA stock carry the Anniversary HUD (digsite\ui\hud
     paths). This engine draws HUDs in the retail 640x480 space, so those sprites
@@ -191,22 +241,27 @@ def _stockify_hud(job_tags, game_maps_dir, inv, hceek_dir, log):
            if os.path.isfile(f) and f.lower().endswith(_CEA_HUD_HINTS)
            and not os.path.normcase(f).startswith(stock_root)]
     if not cea:
-        return
-    donor = _stock_donor(game_maps_dir, inv, hceek_dir, log)
-    if not donor:
-        log_line("WARNING: map carries the Anniversary HUD but no shipped map was "
-                 "found to take the stock HUD from — HUD may look wrong-scaled", log)
-        return
-    log_line(f"map carries the Anniversary HUD ({len(cea)} tag files) — swapping in "
-             "the stock one like the game's own maps", log)
+        return False
     for f in cea:
         try:
             os.remove(f)
         except OSError:
             pass
-    for pat in ("ui/hud/*", "old tags/*", "weapons/*", "vehicles/*", "globals/*"):
+    log_line(f"map carries the Anniversary HUD ({len(cea)} tag files) — swapping in "
+             "the stock one like the game's own maps", log)
+    if build_stock_cache(game_maps_dir, inv, hceek_dir, log):
+        _copy_stock(job_tags, log)
+        return True
+    donor = _stock_donor(game_maps_dir, inv, hceek_dir, log)
+    if donor:
         run([os.path.join(inv, "invader-extract.exe"), "-t", job_tags, "-O",
-             "-s", pat, donor], cwd=hceek_dir, log=log, timeout=900)
+             "-m", game_maps_dir, "-s", "*", donor],
+            cwd=hceek_dir, log=log, timeout=1800)
+        return True
+    log_line("WARNING: map carries the Anniversary HUD but no stock tags were "
+             "available (no shipped map in the game folder to copy from) — the "
+             "HUD may look wrong-scaled", log)
+    return False
 
 
 def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
@@ -216,6 +271,15 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
         return False
     tried |= fresh
     for tag in sorted(fresh):
+        # 1) the companion's own stock-tag cache (self-contained)
+        cached = os.path.normpath(os.path.join(STOCK, tag.replace("\\", os.sep)))
+        if os.path.isfile(cached):
+            dst = os.path.normpath(os.path.join(job_tags, tag.replace("\\", os.sep)))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(cached, dst)
+            log_line(f"  repaired '{tag}' from the companion's stock cache", log)
+            continue
+        # 2) a shipped map in the game's maps folder
         hit = None
         for gm in sorted(glob.glob(os.path.join(game_maps_dir, "*.map"))):
             stem = os.path.splitext(os.path.basename(gm))[0].lower()
@@ -281,6 +345,7 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
     scen = _rel(_scenario_after_extract(job_tags, before), job_tags)
     log_line(f"scenario tag: {scen}", log)
     _stockify_hud(job_tags, os.path.join(game_dir, "maps"), inv, hceek_dir, log)
+    build_stock_cache(os.path.join(game_dir, "maps"), inv, hceek_dir, log)
 
     out_map = os.path.join(job, "out.map")
     if os.path.isfile(out_map):
