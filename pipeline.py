@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import zipfile
 
@@ -156,6 +157,57 @@ def _failed_tags(output):
     return out
 
 
+_CEA_HUD_HINTS = (".weapon_hud_interface", ".hud_globals")
+
+
+def _stock_donor(game_maps_dir, inv, hceek_dir, log):
+    """First shipped map that carries the stock PC HUD (proves it is author-built)."""
+    probe = tempfile.mkdtemp(prefix="donor_")
+    try:
+        for gm in sorted(glob.glob(os.path.join(game_maps_dir, "*.map"))):
+            stem = os.path.splitext(os.path.basename(gm))[0].lower()
+            if stem in gate.DENY or os.path.getsize(gm) < 0x800:
+                continue
+            rc, out = run([os.path.join(inv, "invader-extract.exe"), "-t", probe,
+                           "-O", "-s", "old tags/internal hud", gm],
+                          cwd=hceek_dir, timeout=60)
+            if "Extracted 1 out of 1" in out:
+                log_line(f"stock-tag donor: {os.path.basename(gm)}", log)
+                return gm
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+    return None
+
+
+def _stockify_hud(job_tags, game_maps_dir, inv, hceek_dir, log):
+    r"""Workshop packs built on CEA stock carry the Anniversary HUD (digsite\ui\hud
+    paths). This engine draws HUDs in the retail 640x480 space, so those sprites
+    come out at the wrong scale. The game's own maps use the stock PC HUD — so
+    drop the Anniversary HUD files and overlay the stock HUD, weapons, vehicles
+    and globals from a shipped map, exactly like the game's own maps have them."""
+    stock_root = os.path.normcase(os.path.join(job_tags, "ui", "hud"))
+    cea = [f for f in glob.glob(os.path.join(job_tags, "**", "*"), recursive=True)
+           if os.path.isfile(f) and f.lower().endswith(_CEA_HUD_HINTS)
+           and not os.path.normcase(f).startswith(stock_root)]
+    if not cea:
+        return
+    donor = _stock_donor(game_maps_dir, inv, hceek_dir, log)
+    if not donor:
+        log_line("WARNING: map carries the Anniversary HUD but no shipped map was "
+                 "found to take the stock HUD from — HUD may look wrong-scaled", log)
+        return
+    log_line(f"map carries the Anniversary HUD ({len(cea)} tag files) — swapping in "
+             "the stock one like the game's own maps", log)
+    for f in cea:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    for pat in ("ui/hud/*", "old tags/*", "weapons/*", "vehicles/*", "globals/*"):
+        run([os.path.join(inv, "invader-extract.exe"), "-t", job_tags, "-O",
+             "-s", pat, donor], cwd=hceek_dir, log=log, timeout=900)
+
+
 def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
     """Pull PC-schema copies of the failing tags from the game's own maps."""
     fresh = failed - tried
@@ -228,6 +280,7 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
 
     scen = _rel(_scenario_after_extract(job_tags, before), job_tags)
     log_line(f"scenario tag: {scen}", log)
+    _stockify_hud(job_tags, os.path.join(game_dir, "maps"), inv, hceek_dir, log)
 
     out_map = os.path.join(job, "out.map")
     if os.path.isfile(out_map):
