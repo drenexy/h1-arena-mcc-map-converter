@@ -179,10 +179,10 @@ def gui():
                     variable=use_mcc, command=lambda: refresh()).pack(anchor="w")
     ttk.Checkbutton(s2, text="MCC Workshop maps I subscribed to",
                     variable=use_ws, command=lambda: refresh()).pack(anchor="w")
-    ttk.Checkbutton(s2, text="Add the game's own scripts to converted maps "
+    ttk.Checkbutton(s2, text="Add H1 Arena's scripts to converted maps "
                              "(round timer, callouts) — recommended",
                     variable=add_scripts).pack(anchor="w", pady=(4, 0))
-    ttk.Checkbutton(s2, text="Replace custom weapons with the game's stock ones — recommended",
+    ttk.Checkbutton(s2, text="Replace custom weapons with H1 Arena's stock ones — recommended",
                     variable=weapon_fix).pack(anchor="w")
     ttk.Button(s2, text="Add another folder with .map files…",
                command=lambda: add_folder(), width=40).pack(anchor="w", pady=(4, 0))

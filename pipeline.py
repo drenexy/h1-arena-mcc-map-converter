@@ -198,7 +198,7 @@ def build_stock_cache(game_maps_dir, inv, hceek_dir, log=None):
     donor = _stock_donor(game_maps_dir, inv, hceek_dir, log)
     if not donor:
         return False
-    log_line("caching the game's stock tags (one shipped map, all tags)...", log)
+    log_line("caching H1 Arena's stock tags (one shipped map, all tags)...", log)
     tmp = STOCK + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp, exist_ok=True)
@@ -235,7 +235,7 @@ def _stockify_hud(job_tags, game_maps_dir, inv, hceek_dir, log):
     paths). This engine draws HUDs in the retail 640x480 space, so those sprites
     come out at the wrong scale. The game's own maps use the stock PC HUD — so
     drop the Anniversary HUD files and overlay the stock HUD, weapons, vehicles
-    and globals from a shipped map, exactly like the game's own maps have them."""
+    and globals from a shipped map, exactly like H1 Arena's own maps have them."""
     stock_root = os.path.normcase(os.path.join(job_tags, "ui", "hud"))
     cea = [f for f in glob.glob(os.path.join(job_tags, "**", "*"), recursive=True)
            if os.path.isfile(f) and f.lower().endswith(_CEA_HUD_HINTS)
@@ -248,7 +248,7 @@ def _stockify_hud(job_tags, game_maps_dir, inv, hceek_dir, log):
         except OSError:
             pass
     log_line(f"map carries the Anniversary HUD ({len(cea)} tag files) — swapping in "
-             "the stock one like the game's own maps", log)
+             "the stock one like H1 Arena's own maps", log)
     if build_stock_cache(game_maps_dir, inv, hceek_dir, log):
         _copy_stock(job_tags, log)
         return True
@@ -285,7 +285,7 @@ def _pb_script_source(stock_scen_dir):
 
 
 def inject_pb_scripts(job_tags, job_data, scen, game_maps_dir, inv, hceek_dir, log):
-    """Give the converted map the same scripts the game's own maps carry
+    """Give the converted map the same scripts H1 Arena's own maps carry
     (talking timer beeps, callouts, HUD extras). The scripts live inside every
     shipped map's scenario tag; we copy them out and compile them into this map.
     Scripts that reference objects/flags only the donor map has are dropped one
@@ -322,7 +322,7 @@ def inject_pb_scripts(job_tags, job_data, scen, game_maps_dir, inv, hceek_dir, l
         out = compile_set(defs)
         if "error" not in out:
             dropped = n0 - len(defs)
-            log_line(f"added the game's scripts ({len(defs)} scripts"
+            log_line(f"added H1 Arena's scripts ({len(defs)} scripts"
                      + (f", skipped {dropped} that need things only their own map has)"
                         if dropped else ")"), log)
             return len(defs)
@@ -341,14 +341,14 @@ def inject_pb_scripts(job_tags, job_data, scen, game_maps_dir, inv, hceek_dir, l
         if drop is None:
             break
         defs.pop(drop)
-    log_line("WARNING: could not add the game's scripts to this map — converting "
+    log_line("WARNING: could not add H1 Arena's scripts to this map — converting "
              "it without them", log)
     run(sargs + ["-c", rel], cwd=hceek_dir, log=log, timeout=300)
     return 0
 
 
 def stockify_weapons(job_tags, log=None):
-    """Custom weapon tags that share a path with the game's stock weapons get
+    """Custom weapon tags that share a path with H1 Arena's stock weapons get
     replaced by the stock ones (Halo PC chokes on many MCC custom weapons).
     Returns (replaced_names, custom_names_we_cannot_map)."""
     wroot = os.path.join(job_tags, "weapons")
@@ -368,7 +368,7 @@ def stockify_weapons(job_tags, log=None):
                 shutil.copy2(stock_f, os.path.join(dirpath, fn))
                 replaced.append(os.path.splitext(fn)[0])
     if replaced:
-        log_line(f"swapped {len(set(replaced))} custom weapon tags for the game's "
+        log_line(f"swapped {len(set(replaced))} custom weapon tags for H1 Arena's "
                  "stock versions (Halo PC can't run the MCC ones)", log)
     return sorted(set(replaced)), sorted(set(unmatched))
 
