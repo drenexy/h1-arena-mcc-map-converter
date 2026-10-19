@@ -264,6 +264,89 @@ def _stockify_hud(job_tags, game_maps_dir, inv, hceek_dir, log):
     return False
 
 
+def _pb_script_source(stock_scen_dir):
+    """Pull the PB script suite (globals + scripts) out of the stock-tag donor's
+    scenario. Returns (globals_text, [script_defs]) or (None, [])."""
+    for dirpath, _dirs, files in os.walk(stock_scen_dir):
+        for fn in files:
+            if not fn.endswith(".scenario"):
+                continue
+            blob = open(os.path.join(dirpath, fn), "rb").read()
+            for blk in blob.split(b"\x00"):
+                if b"(global " in blk and b"(script" in blk:
+                    block = blk.decode("utf-8", "replace")
+                    starts = [m.start() for m in re.finditer(r"^\(", block, re.M)]
+                    units = [block[s:e] for s, e in zip(starts, starts[1:] + [len(block)])]
+                    head = "".join(dict.fromkeys(u for u in units if u.startswith("(global")))
+                    defs = list(dict.fromkeys(u for u in units if u.startswith("(script")))
+                    if head and defs:
+                        return head, defs
+    return None, []
+
+
+def inject_pb_scripts(job_tags, job_data, scen, game_maps_dir, inv, hceek_dir, log):
+    """Give the converted map the same scripts the game's own maps carry
+    (talking timer beeps, callouts, HUD extras). The scripts live inside every
+    shipped map's scenario tag; we copy them out and compile them into this map.
+    Scripts that reference objects/flags only the donor map has are dropped one
+    by one until the set compiles. Also strips any scripts the MCC map brought."""
+    sargs = [os.path.join(inv, "invader-script.exe"), "-t", job_tags,
+             "-d", job_data, "-g", "gbx-retail"]
+    rel = scen.replace(os.sep, "/")
+    if rel.endswith(".scenario"):
+        rel = rel[:-len(".scenario")]
+    run(sargs + ["-c", rel], cwd=hceek_dir, log=log, timeout=300)  # strip MCC scripts
+    if not stock_ready():
+        return 0
+    donor_name = ""
+    try:
+        donor_name = json.load(open(os.path.join(STOCK, "ready.json"))).get("donor", "")
+    except (OSError, ValueError):
+        pass
+    if donor_name:
+        dm = os.path.join(game_maps_dir, donor_name)
+        if os.path.isfile(dm):
+            run([os.path.join(inv, "invader-extract.exe"), "-t", job_tags, "-O",
+                 "-s", "sound/timer/*", dm], cwd=hceek_dir, timeout=300)  # timer voices/beeps
+    head, defs = _pb_script_source(STOCK)
+    if not defs:
+        return 0
+    os.makedirs(job_data, exist_ok=True)
+    def compile_set(keep):
+        with open(os.path.join(job_data, "global_scripts.hsc"), "w", encoding="utf-8") as f:
+            f.write(head + "".join(keep))
+        rc, out = run(sargs + [rel], cwd=hceek_dir, timeout=300)
+        return out
+    n0 = len(defs)
+    for _ in range(40):
+        out = compile_set(defs)
+        if "error" not in out:
+            dropped = n0 - len(defs)
+            log_line(f"added the game's scripts ({len(defs)} scripts"
+                     + (f", skipped {dropped} that need things only their own map has)"
+                        if dropped else ")"), log)
+            return len(defs)
+        m = re.search(r":(\d+):", out)
+        line = int(m.group(1)) if m else None
+        drop = None
+        if line:
+            ln = head.count("\n")
+            if line <= ln:
+                break
+            for i, d in enumerate(defs):
+                ln += d.count("\n")
+                if line <= ln:
+                    drop = i
+                    break
+        if drop is None:
+            break
+        defs.pop(drop)
+    log_line("WARNING: could not add the game's scripts to this map — converting "
+             "it without them", log)
+    run(sargs + ["-c", rel], cwd=hceek_dir, log=log, timeout=300)
+    return 0
+
+
 def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
     """Pull PC-schema copies of the failing tags from the game's own maps."""
     fresh = failed - tried
@@ -300,7 +383,7 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
 
 
 def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
-                log=None):
+                log=None, add_scripts=False):
     """Full pipeline. Returns dict(result). Raises RuntimeError on failure."""
     os.makedirs(JOBS, exist_ok=True)
     inv = ensure_invader(inv_zip, log)
@@ -346,6 +429,9 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
     log_line(f"scenario tag: {scen}", log)
     _stockify_hud(job_tags, os.path.join(game_dir, "maps"), inv, hceek_dir, log)
     build_stock_cache(os.path.join(game_dir, "maps"), inv, hceek_dir, log)
+    if add_scripts:
+        inject_pb_scripts(job_tags, os.path.join(job, "data"), scen,
+                          os.path.join(game_dir, "maps"), inv, hceek_dir, log)
 
     out_map = os.path.join(job, "out.map")
     if os.path.isfile(out_map):
