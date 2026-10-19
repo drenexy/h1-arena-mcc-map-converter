@@ -1,30 +1,50 @@
 # H1 Arena MCC Map Converter
 
-Small GUI for H1 Performance Build 2: pick Halo MCC maps you own, hit
-**Convert + install**, the map lands in the game's `maps\` folder and shows up
-in-game on the next launch.
+Small GUI for **H1 Performance Build 2** (H1 Arena): pick Halo MCC maps you
+own, hit **Convert + install**, and the map lands in the game's `maps\` folder,
+listed in-game on the next launch. Built to feel like a step-by-step wizard —
+you point at your game folder once and double-click maps from there.
 
-## What it does
+## Features
 
-- Finds your Steam installs of **Halo: The Master Chief Collection** and
-  **Halo: CE Mod Tools - MCC** (the free "HCEEK" tool from Steam).
-- Lists every Halo map it can find: MCC stock maps, MCC Workshop maps you
-  subscribed to, and any extra folder you add.
-- Converts MCC (cache v13) maps to the Halo PC retail format (cache v7) the
-  Performance Build loads — the same conversion the shipped maps went through.
-- Checks every finished map with the game's own loading rules before it touches
-  the `maps\` folder, so anything installed is guaranteed to be listed in-game.
-- Same map twice = no duplicate. Name clash with a different map = `_2` suffix.
-- `mapcompanion.json` beside `maps\` remembers what the companion installed;
-  **Remove** only deletes those, never the shipped maps.
+- **Finds your maps automatically** — MCC stock maps and every MCC Workshop
+  item you're subscribed to (with real titles, descriptions and thumbnails
+  from Steam). Xbox-disc dumps and other wrong-format files are detected and
+  labelled, not offered.
+- **Converts MCC (cache v13) → Halo PC (cache v7)** — the same pipeline the
+  shipped maps went through: `invader-extract` onto a refactored HCEEK tag
+  base, `invader-build -g gbx-retail`.
+- **Correct HUD scale** — Workshop maps built on Anniversary stock carry the
+  CEA HUD, which renders gigantic in this engine. The converter swaps in the
+  classic 640×480 PC HUD (and stock weapons/vehicles/globals) taken from the
+  game's own shipped maps, automatically, on every conversion that needs it.
+- **The game's scripts** — converted maps get H1 Arena's script suite (round
+  timer beeps, callouts, player effects) copied out of a shipped map's
+  scenario. MCC scripts are stripped first. Scripts that only work on their
+  donor map are skipped automatically. *(checkbox, on by default)*
+- **Custom weapons → stock** — custom weapon tags that match a stock path are
+  swapped for H1 Arena's stock versions; unmappable ones are reported.
+  *(checkbox, on by default)*
+- **Netgame audit** — netgame flags (teleporter nodes), equipment slots and
+  placed-object counts are compared before/after the build; anything dropped
+  shows up as a `NOTE:` in the log.
+- **Heavy-map & broken-shader warnings** — Halo PC is an old engine: oversized
+  maps, single-cluster BSPs and `shader transparent generic` usage (broken by
+  Gearbox in the PC port, unfixable) all produce plain-language warnings.
+- **Nothing bad can be installed** — every finished map passes the game's own
+  header rules before it touches `maps\`.
+- **Safe management** — `mapcompanion.json` beside `maps\` records what the
+  app installed; **Remove** only deletes those, never the shipped maps.
+  Duplicate conversions are refused; name clashes get `_2`, `_3`… Installing
+  works even with the game's `maps\` emptied (see stock tag cache).
 
 ## Requirements
 
 - Windows, Python 3.9+ (or the standalone `H1ArenaMapConverter.exe`)
-- Steam with **Halo: The Master Chief Collection** (owns the maps you convert)
-- Steam with **Halo: CE Mod Tools - MCC** installed **and extracted**
+- Steam with **Halo: The Master Chief Collection** (it owns the maps you convert)
+- Steam with **Halo: CE Mod Tools - MCC** ("HCEEK") installed **and extracted**
   (run `HCEEK (Extract).bat` once in the Mod Tools folder)
-- The `invader-*.zip` that ships in the game package's `tools\` folder
+- The `invader-*.zip` that ships with the game package's tools
   (or set `"invader_zip"` in `%LOCALAPPDATA%\h1mapcompanion\config.json`)
 
 ## Use
@@ -33,26 +53,28 @@ in-game on the next launch.
 python companion.py
 ```
 
-1. Game folder → your Performance Build folder (the one with `maps\`).
-2. Pick map(s) in the list → **Convert + install selected**.
-3. First run takes ~3 extra minutes (one-time setup of the tag base).
-   After that each map takes about 1–3 minutes.
-4. Start the game; the map appears in the MAPS menu.
+1. **Your game** → point at the Performance Build folder (the one with `maps\`).
+2. Tick map sources, find a map (preview panel shows what it is), double-click
+   or press **Convert + install selected**.
+3. First run does one-time setup (tag base + stock tag cache), a few minutes.
+   After that a map takes ~15 s to ~3 min.
+4. Launch the game — the map is in the MAPS menu.
 
-Headless (no GUI):
+Headless:
 
 ```
 python companion.py --convert "D:\path\to\somemap.map" --game "E:\h1-arena"
 ```
 
-## How the conversion works (for the curious)
+## The stock tag cache
 
-`invader-extract` unpacks the MCC map into Mod-Tools-style tags, merged onto a
-refactored copy of the HCEEK tag base; `invader-build -g gbx-retail` writes the
-v7 cache. Stock CEA-schema tags that the v7 target rejects (scorpion lights,
-shared globals) are repaired automatically by overlaying the PC-schema copy
-taken from the game's own shipped maps, then rebuilding. Everything runs under
-`%LOCALAPPDATA%\h1mapcompanion\`.
+First time a conversion needs them, the full tag set of one shipped map
+(classic PC HUD, stock weapons/vehicles/etc, ~84 MB) is cached to
+`%LOCALAPPDATA%\h1mapcompanion\stocktags`. From then on conversions take stock
+tags from that cache, not from the game's `maps\` folder — so converting still
+works if you empty or move your maps folder. The cache is built from the game's
+own files and is never shipped inside the app (they belong to the game).
+Delete the `stocktags` folder to rebuild it.
 
 ## Build the exe
 
@@ -62,34 +84,16 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 
 Needs `pip install pyinstaller`. Result: `dist\H1ArenaMapConverter.exe`.
 
-## Notes
+## Known limitations
 
-- Maps you get from other people (Discord, the internet) can run code on your
-  PC — install maps only from people you trust.
-- Converted maps that still stream art from external packs play with some
-  textures missing; the list marks those.
-
-## Stock tag cache (HUD correctness without game maps)
-The converter caches the full tag set of one shipped map (classic PC HUD,
-stock weapons/vehicles/etc — 84 MB) into `%LOCALAPPDATA%\h1mapcompanion\stocktags`
-the first time a conversion needs it. From then on, conversions take their stock
-tags from that cache, NOT from the game's `maps\` folder — so converting works
-even if the game folder's maps are removed or moved. The cache can only be built
-once from a shipped author map (any of the game's originals counts), which is a
-legal requirement anyway: those tags belong to the game, not to this app.
-Rebuild the cache by deleting the `stocktags` folder.
-
-## Checks and fixes added after conversion testing
-- **The game's scripts**: converted maps get the same script suite the shipped
-  maps carry (round-timer beeps, callouts, player effects). Scripts that need
-  objects only their donor map has are skipped automatically. Any scripts the
-  MCC map carried are stripped first. (checkbox, on by default)
-- **Custom weapons** are swapped for the game's stock versions where they share
-  a name; unmappable customs are reported. (checkbox, on by default)
-- **Netgame audit**: netgame flags (teleporter nodes etc.), equipment slots and
-  placed-object counts are compared before/after the build — the app says if
-  anything got dropped.
-- **Heavy-map warning**: big maps / single-cluster BSPs get a warning; Halo PC
-  can't draw what MCC can.
-- **Broken-shader heads-up**: Gearbox's PC port broke `shader transparent
-  generic`; maps bringing their own of those get a warning (unfixable).
+- Timer scripts that reference objects only their donor map has (the full
+  Cortana voice countdown chain) are skipped rather than rewritten.
+- Spawn-marker **facing** vs spawn orientation is not verified; the audit
+  covers counts (flags, equipment, placed objects), not placement math.
+- Exact triangle counts aren't readable from v7 BSPs, so "heavy map" is a
+  size/cluster heuristic, not the 12k-triangle rule.
+- Random-geo toggle content can't be generated — it's per-map authored work.
+- Maps that stream art from MCC's protected resource packs (not self-contained)
+  convert with missing textures.
+- Anything from the internet can run code on your PC; install maps from people
+  you trust.
