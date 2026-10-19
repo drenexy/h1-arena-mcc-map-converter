@@ -78,3 +78,18 @@ even if the game folder's maps are removed or moved. The cache can only be built
 once from a shipped author map (any of the game's originals counts), which is a
 legal requirement anyway: those tags belong to the game, not to this app.
 Rebuild the cache by deleting the `stocktags` folder.
+
+## Checks and fixes added after conversion testing
+- **The game's scripts**: converted maps get the same script suite the shipped
+  maps carry (round-timer beeps, callouts, player effects). Scripts that need
+  objects only their donor map has are skipped automatically. Any scripts the
+  MCC map carried are stripped first. (checkbox, on by default)
+- **Custom weapons** are swapped for the game's stock versions where they share
+  a name; unmappable customs are reported. (checkbox, on by default)
+- **Netgame audit**: netgame flags (teleporter nodes etc.), equipment slots and
+  placed-object counts are compared before/after the build — the app says if
+  anything got dropped.
+- **Heavy-map warning**: big maps / single-cluster BSPs get a warning; Halo PC
+  can't draw what MCC can.
+- **Broken-shader heads-up**: Gearbox's PC port broke `shader transparent
+  generic`; maps bringing their own of those get a warning (unfixable).

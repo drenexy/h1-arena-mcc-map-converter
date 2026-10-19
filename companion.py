@@ -124,7 +124,10 @@ def cli_convert(map_path, cfg):
     print(":: converting", map_path)
     res = pipeline.convert_map(map_path, game, hceek, steamscan.mcc_map_dir(), z,
                                log=lambda m: print("  " + m),
-                               add_scripts=cfg.get("add_scripts", True))
+                               add_scripts=cfg.get("add_scripts", True),
+                               weapon_fix=cfg.get("weapon_fix", True))
+    for w in res.get("warnings", []):
+        print("NOTE:", w)
     if res.get("skipped"):
         print("::", res["note"])
         return
@@ -154,6 +157,7 @@ def gui():
     use_mcc = tk.BooleanVar(value=cfg.get("use_mcc", True))
     use_ws = tk.BooleanVar(value=cfg.get("use_workshop", True))
     add_scripts = tk.BooleanVar(value=cfg.get("add_scripts", True))
+    weapon_fix = tk.BooleanVar(value=cfg.get("weapon_fix", True))
 
     # ---- step 1: the game ------------------------------------------------
     s1 = ttk.LabelFrame(frm, text=" 1  Your game  ", padding=8)
@@ -178,6 +182,8 @@ def gui():
     ttk.Checkbutton(s2, text="Add the game's own scripts to converted maps "
                              "(round timer, callouts) — recommended",
                     variable=add_scripts).pack(anchor="w", pady=(4, 0))
+    ttk.Checkbutton(s2, text="Replace custom weapons with the game's stock ones — recommended",
+                    variable=weapon_fix).pack(anchor="w")
     ttk.Button(s2, text="Add another folder with .map files…",
                command=lambda: add_folder(), width=40).pack(anchor="w", pady=(4, 0))
 
@@ -291,6 +297,7 @@ def gui():
         cfg["use_mcc"] = bool(use_mcc.get())
         cfg["use_workshop"] = bool(use_ws.get())
         cfg["add_scripts"] = bool(add_scripts.get())
+        cfg["weapon_fix"] = bool(weapon_fix.get())
         save_config(cfg)
         tree.delete(*tree.get_children())
         game = game_var.get()
@@ -410,8 +417,11 @@ def gui():
                     res = pipeline.convert_map(p, game, hceek,
                                                steamscan.mcc_map_dir(), z,
                                                log=lambda m: log(f"[{i}/{len(paths)}] " + m),
-                                               add_scripts=add_scripts.get())
+                                               add_scripts=add_scripts.get(),
+                                               weapon_fix=weapon_fix.get())
                     dest = pipeline.install_map(game, res["map"], res["name"])
+                    for w in res.get("warnings", []):
+                        log(f"[{i}/{len(paths)}] NOTE: {w}")
                     log(f"[{i}/{len(paths)}] DONE — '{res['name']}' is now in your game; "
                         "you'll see it in the MAPS menu next time you start the game")
                 except Exception as e:

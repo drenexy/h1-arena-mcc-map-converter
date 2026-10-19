@@ -347,6 +347,94 @@ def inject_pb_scripts(job_tags, job_data, scen, game_maps_dir, inv, hceek_dir, l
     return 0
 
 
+def stockify_weapons(job_tags, log=None):
+    """Custom weapon tags that share a path with the game's stock weapons get
+    replaced by the stock ones (Halo PC chokes on many MCC custom weapons).
+    Returns (replaced_names, custom_names_we_cannot_map)."""
+    wroot = os.path.join(job_tags, "weapons")
+    if not os.path.isdir(wroot):
+        return [], []
+    replaced, unmatched = [], []
+    for dirpath, _dirs, files in os.walk(wroot):
+        for fn in files:
+            if not os.path.isfile(os.path.join(STOCK, "weapons", os.path.relpath(os.path.join(dirpath, fn), wroot))):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fn), job_tags)
+            stock_f = os.path.join(STOCK, rel)
+            if not os.path.isfile(stock_f):
+                unmatched.append(os.path.relpath(os.path.join(dirpath, fn), wroot))
+                continue
+            if sha256(stock_f) != sha256(os.path.join(dirpath, fn)):
+                shutil.copy2(stock_f, os.path.join(dirpath, fn))
+                replaced.append(os.path.splitext(fn)[0])
+    if replaced:
+        log_line(f"swapped {len(set(replaced))} custom weapon tags for the game's "
+                 "stock versions (Halo PC can't run the MCC ones)", log)
+    return sorted(set(replaced)), sorted(set(unmatched))
+
+
+def _edit_count(inv, tags_dir, key, tagpath, hceek_dir):
+    rc, out = run([os.path.join(inv, "invader-edit.exe"), "-t", tags_dir,
+                   "-C", key, tagpath], cwd=hceek_dir, timeout=180)
+    v = out.strip().splitlines()[0].strip() if out.strip() else ""
+    return int(v) if v.isdigit() else None
+
+
+AUDIT_KEYS = ("netgame_flags", "netgame_equipment", "scenery", "vehicles",
+              "bipeds", "object_names")
+
+
+def audit_scenario(job_tags, scen, built_map, inv, hceek_dir, log):
+    """Check nothing important got dropped while building: netgame flags
+    (teleporter nodes etc.) and placed-object counts must survive 1:1."""
+    rel = scen.replace(os.sep, "/") + ".scenario"
+    pre = {k: _edit_count(inv, job_tags, k, rel, hceek_dir) for k in AUDIT_KEYS}
+    tmp = tempfile.mkdtemp(prefix="audit_")
+    try:
+        run([os.path.join(inv, "invader-extract.exe"), "-t", tmp, "-O", "-s",
+             os.path.basename(rel), built_map], cwd=hceek_dir, timeout=300)
+        post = {k: _edit_count(inv, tmp, k, os.path.basename(rel), hceek_dir)
+                for k in AUDIT_KEYS}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    warns = []
+    for k in AUDIT_KEYS:
+        a, b = pre.get(k), post.get(k)
+        if a is not None and b is not None and a != b:
+            warns.append(f"{k.replace('_', ' ')} changed while building "
+                         f"({a} -> {b}) — the map may behave oddly in some gametypes")
+    ng = pre.get("netgame_flags") or 0
+    ngp = pre.get("netgame_equipment") or 0
+    log_line(f"netgame check: {ng} flags, {ngp} equipment slots, "
+             f"{pre.get('scenery', 0)} scenery, {pre.get('vehicles', 0)} vehicles — all survived", log)
+    return warns
+
+
+def weight_warnings(built_map, job_tags, scen, inv, hceek_dir, log):
+    """Halo PC is an old engine: it can't draw what MCC can. We can't count
+    triangles exactly (they live inside the opaque BSP blob), so warn on the
+    things that correlate: total size, BSP size, cluster metadata."""
+    warns = []
+    mb = os.path.getsize(built_map) / 1e6
+    leaf = os.path.splitext(os.path.basename(scen))[0]
+    bsp = glob.glob(os.path.join(job_tags, os.path.dirname(scen.replace(os.sep, os.sep)),
+                                 leaf + "*.scenario_structure_bsp")) or \
+          glob.glob(os.path.join(job_tags, "**", leaf + "*.scenario_structure_bsp"),
+                    recursive=True)
+    bsp_mb = os.path.getsize(bsp[0]) / 1e6 if bsp else 0
+    clusters = None
+    if bsp:
+        rel = os.path.relpath(bsp[0], job_tags).replace(os.sep, "/")
+        clusters = _edit_count(inv, job_tags, "clusters", rel, hceek_dir)
+    if mb > 250 or bsp_mb > 150:
+        warns.append(f"heavy map ({mb:.0f} MB, BSP {bsp_mb:.0f} MB): Halo PC is an "
+                     "old engine and may lag or fail to draw parts of this map")
+    if clusters == 1 and bsp_mb > 20:
+        warns.append("the map's geometry is a single render cluster — Halo PC may "
+                     "struggle to draw it in one pass (MCC handles this fine)")
+    return warns
+
+
 def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
     """Pull PC-schema copies of the failing tags from the game's own maps."""
     fresh = failed - tried
@@ -383,7 +471,7 @@ def _overlay(failed, job_tags, game_maps_dir, inv, hceek_dir, tried, log):
 
 
 def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
-                log=None, add_scripts=False):
+                log=None, add_scripts=False, weapon_fix=False):
     """Full pipeline. Returns dict(result). Raises RuntimeError on failure."""
     os.makedirs(JOBS, exist_ok=True)
     inv = ensure_invader(inv_zip, log)
@@ -429,6 +517,28 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
     log_line(f"scenario tag: {scen}", log)
     _stockify_hud(job_tags, os.path.join(game_dir, "maps"), inv, hceek_dir, log)
     build_stock_cache(os.path.join(game_dir, "maps"), inv, hceek_dir, log)
+    warnings = []
+    # Gearbox broke 'shader transparent generic' in the Halo PC port. Count the
+    # ones this map brings of its own (not the game's stock ones) — those may
+    # render black or wrong and cannot be converted.
+    try:
+        _lvl = os.path.dirname(scen)
+        _stpg = [f for f in glob.glob(os.path.join(job_tags, "**",
+                   "*.shader_transparent_generic"), recursive=True)
+                 if _lvl and _lvl in os.path.relpath(f, job_tags)]
+        if _stpg:
+            warnings.append(f"{len(_stpg)} transparent shaders in this map use the "
+                            "'transparent generic' type — Gearbox broke that shader "
+                            "in Halo PC, so those surfaces may look black or "
+                            "wrong-sorted in game (nothing can fix this)")
+    except OSError:
+        pass
+    if weapon_fix and stock_ready():
+        _rep, _cust = stockify_weapons(job_tags, log)
+        if _cust:
+            warnings.append("this map has weapons the game doesn't stock "
+                            f"({', '.join(_cust[:4])}{'...' if len(_cust) > 4 else ''}) — "
+                            "left as-is; telltale of issues in game? report it")
     if add_scripts:
         inject_pb_scripts(job_tags, os.path.join(job, "data"), scen,
                           os.path.join(game_dir, "maps"), inv, hceek_dir, log)
@@ -446,7 +556,15 @@ def convert_map(map_path, game_dir, hceek_dir, mcc_maps_dir, inv_zip,
             ok, why = gate.gate(out_map)
             if not ok:
                 raise RuntimeError("built map failed the game's own check: " + why)
-            return {"name": name, "map": out_map, "attempts": attempt}
+            try:
+                warnings += weight_warnings(out_map, job_tags, scen, inv, hceek_dir, log)
+                warnings += audit_scenario(job_tags, scen, out_map, inv, hceek_dir, log)
+            except Exception as e:
+                log_line(f"(post-build check skipped: {e})", log)
+            for w in warnings:
+                log_line("WARNING: " + w, log)
+            return {"name": name, "map": out_map, "attempts": attempt,
+                    "warnings": warnings}
         failed = _failed_tags(out)
         if not failed or not _overlay(failed, job_tags, os.path.join(game_dir, "maps"),
                                       inv, hceek_dir, tried, log):
@@ -487,12 +605,20 @@ def save_manifest(game_dir, man):
         json.dump(man, fh, indent=2)
 
 
-def install_map(game_dir, src_map, name):
-    """Copy into maps\\ with the game gate; collisions get _2, _3 ..."""
+def install_map(game_dir, src_map, name, replace=False):
+    """Copy into maps\\ with the game gate; collisions get _2, _3 ...
+    replace=True overwrites the map named <name>.map (used when refreshing a
+    companion-installed map with a newer build)."""
     maps_dir = os.path.join(game_dir, "maps")
     os.makedirs(maps_dir, exist_ok=True)
     stem = name[:31]
     dest = os.path.join(maps_dir, stem + ".map")
+    if replace and os.path.isfile(dest):
+        shutil.copy2(src_map, dest)
+        man = load_manifest(game_dir)
+        man["maps"][os.path.basename(dest)] = {"name": name, "sha256": sha256(dest)}
+        save_manifest(game_dir, man)
+        return dest
     n = 1
     while os.path.isfile(dest) and sha256(dest) != sha256(src_map):
         n += 1
